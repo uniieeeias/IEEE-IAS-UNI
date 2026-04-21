@@ -3,4 +3,5 @@ uvicorn
 sqlalchemy
 pydantic
 qrcode
-pillowpsycopg2-binary
+pillow
+psycopg2-binary
