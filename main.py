@@ -13,6 +13,9 @@ from models import Base, Certificate
 # Crear tablas
 Base.metadata.create_all(bind=engine)
 
+QR_FOLDER = "qrs"
+os.makedirs(QR_FOLDER, exist_ok=True)
+
 app = FastAPI()
 
 # 🔥 EXPONER CARPETA QR
@@ -29,10 +32,6 @@ class CertificateRequest(BaseModel):
     event_name: str
     event_type: str
     participant: str
-
-
-QR_FOLDER = "qrs"
-os.makedirs(QR_FOLDER, exist_ok=True)
 
 
 def generate_serial(event_type):
