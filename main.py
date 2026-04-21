@@ -63,6 +63,20 @@ def generate_certificate(data: CertificateRequest):
 
     db = SessionLocal()
 
+    # 👇 AQUÍ VA EL CONTROL DE DUPLICADOS
+    existing = db.query(Certificate).filter(
+        Certificate.event_name == data.event_name,
+        Certificate.participant == data.participant
+    ).first()
+
+    if existing:
+        db.close()
+        return {
+            "message": "Este certificado ya existe",
+            "serial": existing.serial
+        }
+
+    # 👇 DESPUÉS SIGUE TU FLUJO NORMAL
     serial = generate_serial(data.event_type)
 
     BASE_URL = os.getenv("BASE_URL", "http://localhost:8000")
