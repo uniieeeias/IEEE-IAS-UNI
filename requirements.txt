@@ -1,4 +1,6 @@
 fastapi
 uvicorn
 sqlalchemy
-qrcode[pil]
+pydantic
+qrcode
+pillow

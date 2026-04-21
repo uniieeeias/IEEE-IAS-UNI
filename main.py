@@ -1,7 +1,8 @@
 from datetime import datetime
 from fastapi.responses import HTMLResponse
+from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from fastapi import FastAPI, HTTPException
 import uuid
 import qrcode
 import os
@@ -14,7 +15,10 @@ Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
 
-# ✅ CORREGIDO
+# 🔥 EXPONER CARPETA QR
+app.mount("/qrs", StaticFiles(directory="qrs"), name="qrs")
+
+
 @app.get("/")
 def home():
     return {"message": "API de certificados funcionando"}
@@ -43,7 +47,8 @@ def generate_certificate(data: CertificateRequest):
 
     serial = generate_serial(data.event_type)
 
-    verification_url = f"http://localhost:8000/verify/{serial}"
+    BASE_URL = os.getenv("BASE_URL", "http://localhost:8000")
+    verification_url = f"{BASE_URL}/verify/{serial}"
 
     cert = Certificate(
         serial=serial,
@@ -54,6 +59,7 @@ def generate_certificate(data: CertificateRequest):
     db.add(cert)
     db.commit()
 
+    # Generar QR
     qr = qrcode.make(verification_url)
     qr_path = f"{QR_FOLDER}/{serial}.png"
     qr.save(qr_path)
@@ -62,7 +68,7 @@ def generate_certificate(data: CertificateRequest):
 
     return {
         "serial": serial,
-        "qr_path": qr_path,
+        "qr_url": f"{BASE_URL}/{qr_path}",
         "verification_url": verification_url
     }
 
@@ -73,7 +79,7 @@ def verify_certificate(serial: str):
     cert = db.query(Certificate).filter(Certificate.serial == serial).first()
     db.close()
 
-    # Estado del certificado
+    # 🔴 NO ENCONTRADO
     if not cert:
         status_title = "❌ Certificado no encontrado"
         status_type = "error"
@@ -81,32 +87,45 @@ def verify_certificate(serial: str):
         event = "No registrado"
         event_type = "No registrado"
         fecha_html = ""
+        qr_html = ""
 
+    # 🟠 INVÁLIDO
     elif cert.status != "valid":
         status_title = "⚠️ Certificado inválido"
         status_type = "warning"
         name = cert.participant
         event = cert.event_name
         event_type = cert.event_type
+
         fecha_html = f"""
         <p style="text-align:center;font-size:13px;color:#7a8793;margin-top:10px;">
         Emitido el: {cert.created_at.strftime("%d/%m/%Y")}
         </p>
-        """ if cert.created_at else ""
+        """ if hasattr(cert, "created_at") and cert.created_at else ""
 
+        qr_html = f"""
+        <img src="/qrs/{serial}.png" width="120" style="margin-top:15px;">
+        """
+
+    # 🟢 VÁLIDO
     else:
         status_title = "✅ Certificado válido"
         status_type = "success"
         name = cert.participant
         event = cert.event_name
         event_type = cert.event_type
+
         fecha_html = f"""
         <p style="text-align:center;font-size:13px;color:#7a8793;margin-top:10px;">
         Emitido el: {cert.created_at.strftime("%d/%m/%Y")}
         </p>
-        """ if cert.created_at else ""
+        """ if hasattr(cert, "created_at") and cert.created_at else ""
 
-    # Colores según estado (más limpio)
+        qr_html = f"""
+        <img src="/qrs/{serial}.png" width="120" style="margin-top:15px;">
+        """
+
+    # 🎨 COLORES
     if status_type == "success":
         bg_color = "#e6f4ea"
         text_color = "#1B9943"
@@ -140,14 +159,7 @@ def verify_certificate(serial: str):
 
 <tr>
 <td align="center" style="padding:25px 20px 10px 20px;">
-<div style="
-    background-color:{bg_color};
-    color:{text_color};
-    padding:12px 20px;
-    border-radius:10px;
-    font-weight:bold;
-    font-size:16px;
-    display:inline-block;">
+<div style="background-color:{bg_color};color:{text_color};padding:12px 20px;border-radius:10px;font-weight:bold;font-size:16px;display:inline-block;">
 {status_title}
 </div>
 </td>
@@ -202,6 +214,7 @@ Verificación de autenticidad del certificado
 {serial}
 </div>
 {fecha_html}
+{qr_html}
 </div>
 
 <p style="font-size:14px;color:#555;line-height:1.7;margin-top:25px;text-align:center;">
@@ -214,15 +227,12 @@ Este certificado ha sido emitido por<br>
 
 <tr>
 <td align="center" style="background-color:#101820;padding:25px;">
-
 <div style="font-size:17px;color:#ffffff;font-weight:bold;">
 IEEE IAS UNI
 </div>
-
 <div style="font-size:12px;color:#a5b0bb;margin-top:6px;">
 Sistema de Certificación Digital
 </div>
-
 </td>
 </tr>
 
