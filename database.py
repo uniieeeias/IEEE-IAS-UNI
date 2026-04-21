@@ -1,24 +1,20 @@
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
 import os
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker, declarative_base
 
-# 🔥 Obtener variable de entorno desde Render
+# 🔥 IMPORTANTE: Render usa variable de entorno DATABASE_URL
 DATABASE_URL = os.getenv("DATABASE_URL")
 
-# 🚨 Validación para evitar crash silencioso
 if not DATABASE_URL:
-    raise Exception("❌ DATABASE_URL no está configurada en el entorno (Render)")
+    raise Exception("❌ DATABASE_URL no está configurada en Render")
 
-# 🔗 Crear engine de conexión a PostgreSQL
-engine = create_engine(
-    DATABASE_URL,
-    pool_pre_ping=True,   # evita conexiones muertas en deploy
-    pool_recycle=300      # recicla conexiones cada cierto tiempo
-)
+# Render a veces usa postgres:// en vez de postgresql://
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
-# 🧠 Sesión de base de datos
-SessionLocal = sessionmaker(
-    autocommit=False,
-    autoflush=False,
-    bind=engine
-)
+engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+# 🔥 ESTO ES LO QUE TE FALTABA
+Base = declarative_base()
