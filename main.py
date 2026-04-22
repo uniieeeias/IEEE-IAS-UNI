@@ -164,8 +164,17 @@ def verify_certificate(serial: str):
         </p>
         """
 
+        BASE_URL = os.getenv("BASE_URL", "http://localhost:8000")
+        verification_url = f"{BASE_URL}/verify/{serial}"
+
+        qr = qrcode.make(verification_url)
+
+        buffer = BytesIO()
+        qr.save(buffer, format="PNG")
+        img_base64 = base64.b64encode(buffer.getvalue()).decode()
+
         qr_html = f"""
-        <img src="/qrs/{serial}.png" width="120" style="margin-top:15px;">
+        <img src="data:image/png;base64,{img_base64}" width="120" style="margin-top:15px;">
         """
 
     if status_type == "success":
