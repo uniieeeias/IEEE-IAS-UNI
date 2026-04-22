@@ -1,3 +1,5 @@
+import base64
+from io import BytesIO
 import os
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import HTMLResponse
@@ -16,13 +18,7 @@ from models import Base, Certificate
 
 Base.metadata.create_all(bind=engine)
 
-# 🔥 FIX RENDER: usar /tmp para persistencia temporal
-QR_FOLDER = os.path.join("/tmp", "qrs")
-os.makedirs(QR_FOLDER, exist_ok=True)
-
 app = FastAPI()
-
-app.mount("/qrs", StaticFiles(directory=QR_FOLDER), name="qrs")
 
 API_KEY = os.getenv("API_KEY")
 
@@ -101,16 +97,19 @@ def generate_certificate(data: CertificateRequest, x_api_key: str = Header(None)
 
     # ========================
     # QR FIX
-    # ========================
-    qr = qrcode.make(verification_url)
+    # =======================
 
-    qr_filename = f"{serial}.png"
-    qr_path = os.path.join(QR_FOLDER, qr_filename)
-    qr.save(qr_path)
+    qr = qrcode.make(verification_url)
+    buffer = BytesIO()
+    qr.save(buffer, format="PNG")
+
+    img_base64 = base64.b64encode(buffer.getvalue()).decode()
+
+    qr_data_url = f"data:image/png;base64,{img_base64}"
 
     return {
         "serial": serial,
-        "qr_url": f"{BASE_URL}/qrs/{qr_filename}",
+        "qr_url": qr_data_url,
         "verification_url": verification_url
     }
 
