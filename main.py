@@ -16,19 +16,21 @@ from models import Base, Certificate
 
 Base.metadata.create_all(bind=engine)
 
-QR_FOLDER = "qrs"
+# 🔥 IMPORTANTE: en Render usa /tmp para evitar problemas de filesystem
+QR_FOLDER = os.path.join("/tmp", "qrs")
 os.makedirs(QR_FOLDER, exist_ok=True)
 
 app = FastAPI()
 
+# servir carpeta QR
 app.mount("/qrs", StaticFiles(directory=QR_FOLDER), name="qrs")
 
-# 🔐 API KEY (Render -> Environment Variable)
+# API KEY
 API_KEY = os.getenv("API_KEY")
 
 
 # ========================
-# MODELO REQUEST
+# MODELO
 # ========================
 
 class CertificateRequest(BaseModel):
@@ -39,7 +41,7 @@ class CertificateRequest(BaseModel):
 
 
 # ========================
-# SERIAL GENERATOR
+# SERIAL
 # ========================
 
 def generate_serial(event_type: str):
@@ -62,19 +64,13 @@ def home():
 # ========================
 
 @app.post("/certificates/generate")
-def generate_certificate(
-    data: CertificateRequest,
-    x_api_key: str = Header(None)
-):
+def generate_certificate(data: CertificateRequest, x_api_key: str = Header(None)):
 
-    # 🔐 validación API KEY (opcional pero recomendado)
-    if API_KEY:
-        if x_api_key != API_KEY:
-            raise HTTPException(status_code=401, detail="No autorizado")
+    if API_KEY and x_api_key != API_KEY:
+        raise HTTPException(status_code=401, detail="No autorizado")
 
     db = SessionLocal()
 
-    # evitar duplicados
     existing = db.query(Certificate).filter(
         Certificate.event_name == data.event_name,
         Certificate.participant == data.participant
@@ -82,10 +78,7 @@ def generate_certificate(
 
     if existing:
         db.close()
-        return {
-            "message": "Este certificado ya existe",
-            "serial": existing.serial
-        }
+        return {"message": "Este certificado ya existe", "serial": existing.serial}
 
     serial = generate_serial(data.event_type)
 
@@ -105,20 +98,29 @@ def generate_certificate(
     db.commit()
     db.close()
 
-    # QR
+    # ========================
+    # QR GENERATION (FIX)
+    # ========================
     qr = qrcode.make(verification_url)
-    qr_path = f"{QR_FOLDER}/{serial}.png"
+
+    qr_filename = f"{serial}.png"
+    qr_path = os.path.join(QR_FOLDER, qr_filename)
+
     qr.save(qr_path)
+
+    # 🔥 validación real
+    if not os.path.exists(qr_path):
+        raise HTTPException(status_code=500, detail="No se pudo generar el QR")
 
     return {
         "serial": serial,
-        "qr_url": f"{BASE_URL}/qrs/{serial}.png",
+        "qr_url": f"{BASE_URL}/qrs/{qr_filename}",
         "verification_url": verification_url
     }
 
 
 # ========================
-# VERIFICACIÓN
+# VERIFICACIÓN (TU DISEÑO ORIGINAL)
 # ========================
 
 @app.get("/verify/{serial}", response_class=HTMLResponse)
@@ -128,9 +130,6 @@ def verify_certificate(serial: str):
     cert = db.query(Certificate).filter(Certificate.serial == serial).first()
     db.close()
 
-    # ========================
-    # CASO: NO EXISTE
-    # ========================
     if not cert:
         status_title = "❌ Certificado no encontrado"
         status_type = "error"
@@ -140,9 +139,6 @@ def verify_certificate(serial: str):
         fecha_html = ""
         qr_html = ""
 
-    # ========================
-    # CASO: INVÁLIDO
-    # ========================
     elif cert.status != "valid":
         status_title = "⚠️ Certificado inválido"
         status_type = "warning"
@@ -160,9 +156,6 @@ def verify_certificate(serial: str):
         <img src="/qrs/{serial}.png" width="120" style="margin-top:15px;">
         """
 
-    # ========================
-    # CASO: VÁLIDO
-    # ========================
     else:
         status_title = "✅ Certificado válido"
         status_type = "success"
@@ -180,9 +173,6 @@ def verify_certificate(serial: str):
         <img src="/qrs/{serial}.png" width="120" style="margin-top:15px;">
         """
 
-    # ========================
-    # COLORES
-    # ========================
     if status_type == "success":
         bg_color = "#e6f4ea"
         text_color = "#1B9943"
@@ -193,115 +183,76 @@ def verify_certificate(serial: str):
         bg_color = "#fdecea"
         text_color = "#c0392b"
 
-    # ========================
-    # HTML FINAL (DISEÑO PRO)
-    # ========================
     return f"""
-<!DOCTYPE html>
-<html lang="es">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Verificación de Certificado</title>
-</head>
+    <!DOCTYPE html>
+    <html lang="es">
+    <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Verificación de Certificado</title>
+    </head>
 
-<body style="margin:0;padding:0;background-color:#edf3f7;font-family:Arial,Helvetica,sans-serif;">
+    <body style="margin:0;padding:0;background-color:#edf3f7;font-family:Arial,Helvetica,sans-serif;">
 
-<table width="100%" cellpadding="0" cellspacing="0" border="0" style="padding:30px 10px;">
-<tr>
-<td align="center">
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="padding:30px 10px;">
+    <tr>
+    <td align="center">
 
-<table width="620" cellpadding="0" cellspacing="0" border="0" style="background-color:#ffffff;border-radius:18px;overflow:hidden;box-shadow:0px 8px 25px rgba(0,0,0,0.08);">
+    <table width="620" cellpadding="0" cellspacing="0" border="0" style="background-color:#ffffff;border-radius:18px;overflow:hidden;box-shadow:0px 8px 25px rgba(0,0,0,0.08);">
 
-<tr>
-<td style="background:linear-gradient(90deg,#16679E,#1B9943);height:8px;"></td>
-</tr>
+    <tr>
+    <td style="background:linear-gradient(90deg,#16679E,#1B9943);height:8px;"></td>
+    </tr>
 
-<tr>
-<td align="center" style="padding:25px 20px 10px 20px;">
-<div style="background-color:{bg_color};color:{text_color};padding:12px 20px;border-radius:10px;font-weight:bold;font-size:16px;display:inline-block;">
-{status_title}
-</div>
-</td>
-</tr>
+    <tr>
+    <td align="center" style="padding:25px 20px 10px 20px;">
+    <div style="background-color:{bg_color};color:{text_color};padding:12px 20px;border-radius:10px;font-weight:bold;font-size:16px;display:inline-block;">
+    {status_title}
+    </div>
+    </td>
+    </tr>
 
-<tr>
-<td align="center" style="padding:20px 30px 10px 30px;">
+    <tr>
+    <td align="center" style="padding:20px 30px 10px 30px;">
 
-<div style="font-size:12px;color:#1B9943;font-weight:bold;letter-spacing:1px;">
-IEEE IAS UNI · CERTIFICACIÓN
-</div>
+    <div style="font-size:12px;color:#1B9943;font-weight:bold;letter-spacing:1px;">
+    IEEE IAS UNI · CERTIFICACIÓN
+    </div>
 
-<h2 style="margin:15px 0 5px 0;color:#101820;">
-{name}
-</h2>
+    <h2 style="margin:15px 0 5px 0;color:#101820;">
+    {name}
+    </h2>
 
-<p style="margin:0;font-size:14px;color:#6b7785;">
-Verificación de autenticidad del certificado
-</p>
+    <p style="margin:0;font-size:14px;color:#6b7785;">
+    Verificación de autenticidad del certificado
+    </p>
 
-</td>
-</tr>
+    </td>
+    </tr>
 
-<tr>
-<td style="padding:25px 35px;">
+    <tr>
+    <td style="padding:25px 35px;">
 
-<table width="100%" cellpadding="0" cellspacing="0" border="0">
-<tr>
+    <div style="text-align:center;">
+        <div style="font-size:13px;">Evento: <b>{event}</b></div>
+        <div style="font-size:13px;">Tipo: <b>{event_type}</b></div>
+    </div>
 
-<td width="48%" valign="top" style="background-color:#f4f9fc;padding:20px;border-radius:12px;">
-<div style="font-size:13px;color:#7a8793;margin-bottom:6px;">Evento</div>
-<div style="font-size:15px;color:#101820;font-weight:bold;">
-{event}
-</div>
-</td>
+    <div style="margin-top:20px;text-align:center;">
+        <b>{serial}</b>
+        {fecha_html}
+        {qr_html}
+    </div>
 
-<td width="4%"></td>
+    </td>
+    </tr>
 
-<td width="48%" valign="top" style="background-color:#f4fbf6;padding:20px;border-radius:12px;">
-<div style="font-size:13px;color:#7a8793;margin-bottom:6px;">Tipo</div>
-<div style="font-size:15px;color:#101820;font-weight:bold;">
-{event_type}
-</div>
-</td>
+    </table>
 
-</tr>
-</table>
+    </td>
+    </tr>
+    </table>
 
-<div style="margin-top:25px;padding:15px;background:#f8fafc;border-radius:10px;text-align:center;">
-<div style="font-size:12px;color:#7a8793;">Código de verificación</div>
-<div style="font-size:14px;color:#16679E;font-weight:bold;margin-top:5px;">
-{serial}
-</div>
-{fecha_html}
-{qr_html}
-</div>
-
-<p style="font-size:14px;color:#555;line-height:1.7;margin-top:25px;text-align:center;">
-Este certificado ha sido emitido por<br>
-<strong>IEEE Industry Applications Society - Universidad Nacional de Ingeniería</strong>
-</p>
-
-</td>
-</tr>
-
-<tr>
-<td align="center" style="background-color:#101820;padding:25px;">
-<div style="font-size:17px;color:#ffffff;font-weight:bold;">
-IEEE IAS UNI
-</div>
-<div style="font-size:12px;color:#a5b0bb;margin-top:6px;">
-Sistema de Certificación Digital
-</div>
-</td>
-</tr>
-
-</table>
-
-</td>
-</tr>
-</table>
-
-</body>
-</html>
-"""
+    </body>
+    </html>
+    """
